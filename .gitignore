@@ -1,1 +1,23 @@
+# Virtual Environment
 venv/
+env/
+ENV/
+
+# Python Cache & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Environment Variables & Secrets
+.env
+
+# Datasets & ML Artifacts
+data/
+*.pkl
+*.parquet
+
+# OS & Editor Files
+.DS_Store
+.vscode/
+.idea/
