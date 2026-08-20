@@ -14,7 +14,7 @@ __pycache__/
 
 # Datasets & ML Artifacts
 data/
-*.pkl
+*.pkl``
 *.parquet
 
 # OS & Editor Files
