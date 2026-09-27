@@ -57,7 +57,7 @@ constexpr float DEFAULT_TARGET_WEIGHT = 150.0;
 constexpr unsigned long DISPENSE_TIMEOUT = 30000;
 
 // Telemetry interval during dispensing.
-constexpr unsigned long TELEMETRY_INTERVAL = 500;
+constexpr unsigned long TELEMETRY_INTERVAL = PUBLISH_INTERVAL_MS;
 
 // ============================================================
 // SERVO CONFIGURATION

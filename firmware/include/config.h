@@ -16,4 +16,4 @@
 // Telemetry
 // ============================================================
 
-#define PUBLISH_INTERVAL_MS 1000
+#define PUBLISH_INTERVAL_MS 500

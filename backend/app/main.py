@@ -6,6 +6,17 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 import paho.mqtt.client as mqtt
 
+from datetime import datetime, timezone
+
+from sqlalchemy.orm import Session
+from sqlalchemy import select
+
+from .database import engine
+from .models import Device, Telemetry
+
+import queue
+import threading
+
 
 # ============================================================
 # MQTT CONFIGURATION
@@ -18,6 +29,12 @@ DEVICE_ID = "cts_01"
 
 TELEMETRY_TOPIC = f"device/{DEVICE_ID}/telemetry"
 COMMAND_TOPIC = f"device/{DEVICE_ID}/command"
+
+# ============================================================
+# TELEMETRY QUEUE
+# ============================================================
+
+telemetry_queue = queue.Queue()
 
 
 # ============================================================
@@ -34,22 +51,226 @@ def on_connect(client, userdata, flags, rc, properties=None):
     else:
         print(f"❌ Failed to connect to MQTT Broker, return code: {rc}")
 
+# ============================================================
+# TELEMETRY DATABASE WORKER
+# ============================================================
+
+def telemetry_database_worker():
+    print("🗄️ Telemetry database worker started")
+
+    BATCH_SIZE = 20
+    MAX_WAIT_SECONDS = 0.5
+
+    while True:
+        batch = []
+
+        # Wait for the first telemetry record
+        try:
+            first_payload = telemetry_queue.get(
+                timeout=MAX_WAIT_SECONDS
+            )
+        except queue.Empty:
+            continue
+
+        if first_payload is None:
+            telemetry_queue.task_done()
+            break
+
+        batch.append(first_payload)
+
+        # Collect additional records without blocking
+        while len(batch) < BATCH_SIZE:
+            try:
+                payload = telemetry_queue.get_nowait()
+
+                if payload is None:
+                    telemetry_queue.task_done()
+                    break
+
+                batch.append(payload)
+
+            except queue.Empty:
+                break
+
+        try:
+            # --------------------------------------------------
+            # Find all devices needed by this batch
+            # --------------------------------------------------
+
+            device_ids = {
+                payload["device_id"]
+                for payload in batch
+            }
+
+            with Session(engine) as session:
+
+                devices = session.scalars(
+                    select(Device).where(
+                        Device.device_id.in_(device_ids)
+                    )
+                ).all()
+
+                valid_device_ids = {
+                    device.device_id
+                    for device in devices
+                }
+
+                telemetry_rows = []
+
+                for payload in batch:
+
+                    device_id = payload["device_id"]
+
+                    if device_id not in valid_device_ids:
+                        print(
+                            f"⚠️ Rejected telemetry: "
+                            f"unknown device '{device_id}'"
+                        )
+                        continue
+
+                    # Device observation timestamp
+                    observation_time = datetime.fromtimestamp(
+                        payload["timestamp"] / 1000,
+                        tz=timezone.utc,
+                    ).replace(tzinfo=None)
+
+                    # Backend MQTT receipt timestamp
+                    received_at = payload["received_at"]
+
+                    telemetry_rows.append(
+                        Telemetry(
+                            device_id=device_id,
+                            timestamp=observation_time,
+                            current_weight_g=float(
+                                payload["current_weight_g"]
+                            ),
+                            gate_status=payload["gate_status"],
+                            received_at=received_at,
+                        )
+                    )
+
+                # --------------------------------------------------
+                # One database transaction for the whole batch
+                # --------------------------------------------------
+
+                if telemetry_rows:
+                    session.add_all(telemetry_rows)
+                    session.commit()
+
+                    print(
+                        f"💾 STORED BATCH → "
+                        f"{len(telemetry_rows)} rows | "
+                        f"Queue: {telemetry_queue.qsize()}"
+                    )
+
+        except Exception as e:
+            print(f"❌ Database batch error: {e}")
+
+        finally:
+            # Mark every item retrieved from the queue as processed
+            for _ in batch:
+                telemetry_queue.task_done()
 
 def on_message(client, userdata, msg):
     try:
         payload = json.loads(msg.payload.decode())
 
-        weight = payload.get("current_weight_g")
-        status = payload.get("gate_status")
+        # --------------------------------------------------
+        # Validate required fields
+        # --------------------------------------------------
 
-        print(
-            f"📥 INGESTED -> "
-            f"Weight: {weight}g | "
-            f"Gate: {status}"
-        )
+        required_fields = [
+            "device_id",
+            "timestamp",
+            "current_weight_g",
+            "gate_status",
+        ]
+
+        missing_fields = [
+            field
+            for field in required_fields
+            if field not in payload
+        ]
+
+        if missing_fields:
+            print(
+                f"⚠️ Rejected telemetry. "
+                f"Missing fields: {missing_fields}"
+            )
+            return
+
+        device_id = payload["device_id"]
+        timestamp = payload["timestamp"]
+        current_weight_g = payload["current_weight_g"]
+        gate_status = payload["gate_status"]
+
+        # --------------------------------------------------
+        # Validate values
+        # --------------------------------------------------
+
+        if not isinstance(device_id, str):
+            print("⚠️ Rejected telemetry: invalid device_id")
+            return
+
+        if not isinstance(timestamp, int):
+            print(
+                "⚠️ Rejected telemetry: "
+                "timestamp must be Unix milliseconds"
+            )
+            return
+
+        if timestamp <= 0:
+            print(
+                "⚠️ Rejected telemetry: "
+                "invalid timestamp"
+            )
+            return
+
+        if not isinstance(
+            current_weight_g,
+            (int, float)
+        ):
+            print(
+                "⚠️ Rejected telemetry: "
+                "invalid current_weight_g"
+            )
+            return
+
+        if current_weight_g < 0:
+            print(
+                "⚠️ Rejected telemetry: "
+                "negative current_weight_g"
+            )
+            return
+
+        if gate_status not in ["OPEN", "CLOSED"]:
+            print(
+                "⚠️ Rejected telemetry: "
+                "invalid gate_status"
+            )
+            return
+
+        # --------------------------------------------------
+        # Queue validated telemetry
+        # --------------------------------------------------
+
+        received_at = datetime.now(
+            timezone.utc
+        ).replace(tzinfo=None)
+
+        telemetry_queue.put({
+            "device_id": device_id,
+            "timestamp": timestamp,
+            "current_weight_g": float(current_weight_g),
+            "gate_status": gate_status,
+            "received_at": received_at,
+        })
 
     except json.JSONDecodeError:
         print("⚠️ Received malformed JSON payload")
+
+    except Exception as e:
+        print(f"❌ Telemetry processing error: {e}")
 
 
 # ============================================================
@@ -85,6 +306,13 @@ class DispenseRequest(BaseModel):
 async def lifespan(app: FastAPI):
 
     print("🚀 Starting HealthPaw backend...")
+
+    db_worker = threading.Thread(
+        target=telemetry_database_worker,
+        daemon=True,
+    )
+
+    db_worker.start()
 
     try:
         mqtt_client.connect(BROKER, PORT, 60)

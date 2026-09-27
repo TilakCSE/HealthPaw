@@ -9,6 +9,9 @@ PORT = 1883
 TOPIC = "device/cts_01/telemetry"
 DEVICE_ID = "cts_01"
 
+TELEMETRY_HZ = 2
+SAMPLE_INTERVAL = 1 / TELEMETRY_HZ
+
 # --- Callbacks ---
 def on_connect(client, userdata, flags, rc):
     """Callback for when the client receives a CONNACK response from the server."""
@@ -55,7 +58,7 @@ try:
         # Construct the payload matching your specification
         payload = {
             "device_id": DEVICE_ID,
-            "timestamp": int(time.time()),
+            "timestamp": int(time.time() * 1000),
             "current_weight_g": round(current_weight, 2),
             "gate_status": gate_status
         }
@@ -65,7 +68,7 @@ try:
         print(f"Published: {payload}")
         
         # Simulate a 10 Hz sampling rate (0.1 second delay)
-        time.sleep(0.1)
+        time.sleep(SAMPLE_INTERVAL)
 
 except KeyboardInterrupt:
     print("\n🛑 Simulation stopped by user.")
