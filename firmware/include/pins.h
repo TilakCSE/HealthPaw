@@ -1,12 +1,10 @@
-#pragma once
+#ifndef PINS_H
+#define PINS_H
 
-// ================================
-// HealthPaw ESP32 Pin Configuration
-// ================================
+#include <Arduino.h>
 
-// HX711
-constexpr uint8_t HX711_DOUT_PIN = 19;
-constexpr uint8_t HX711_SCK_PIN  = 18;
+const uint8_t HX711_DOUT = 25;
+const uint8_t HX711_SCK  = 14;
+const uint8_t SERVO_PIN  = 32;
 
-// Servo
-constexpr uint8_t SERVO_PIN = 25;
+#endif
