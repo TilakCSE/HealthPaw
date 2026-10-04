@@ -67,7 +67,7 @@ try:
         client.publish(TOPIC, json.dumps(payload))
         print(f"Published: {payload}")
         
-        # Simulate a 10 Hz sampling rate (0.1 second delay)
+        # Publish at TELEMETRY_HZ (currently 2 Hz / 0.5 seconds).
         time.sleep(SAMPLE_INTERVAL)
 
 except KeyboardInterrupt:

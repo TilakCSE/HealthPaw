@@ -13,6 +13,7 @@ from sqlalchemy import select
 
 from .database import engine
 from .models import Device, Telemetry
+from .session_pipeline import process_device_telemetry
 
 import queue
 import threading
@@ -162,6 +163,9 @@ def telemetry_database_worker():
                         f"{len(telemetry_rows)} rows | "
                         f"Queue: {telemetry_queue.qsize()}"
                     )
+
+                    for device_id in device_ids & valid_device_ids:
+                        process_device_telemetry(session, device_id)
 
         except Exception as e:
             print(f"❌ Database batch error: {e}")

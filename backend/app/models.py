@@ -1,6 +1,7 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey
+
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -185,6 +186,13 @@ class FeedingSession(Base):
         back_populates="session",
         cascade="all, delete-orphan",
     )
+    
+    features = relationship(
+    "FeedingFeature",
+    back_populates="session",
+    uselist=False,
+    cascade="all, delete-orphan",
+    )
 
 
 # ============================================================
@@ -241,4 +249,80 @@ class ConsumptionEvent(Base):
 
     session: Mapped["FeedingSession"] = relationship(
         back_populates="consumption_events"
+    )
+    
+class FeedingFeature(Base):
+    __tablename__ = "feeding_features"
+
+    id = Column(Integer, primary_key=True)
+
+    session_id = Column(
+        Integer,
+        ForeignKey("feeding_sessions.id"),
+        unique=True,
+        nullable=False,
+    )
+
+    # Core consumption features
+    consumed_g = Column(Float, nullable=False)
+    session_duration_s = Column(Float, nullable=True)
+    eating_duration_s = Column(Float, nullable=False)
+
+    # Feeding speed
+    avg_velocity_gps = Column(Float, nullable=True)
+    max_velocity_gps = Column(Float, nullable=True)
+
+    # Consumption pattern
+    consumption_event_count = Column(
+        Integer,
+        nullable=False,
+    )
+
+    time_to_first_consumption_s = Column(
+        Float,
+        nullable=True,
+    )
+
+    # Pause behaviour
+    pause_count = Column(
+        Integer,
+        nullable=False,
+    )
+
+    avg_pause_duration_s = Column(
+        Float,
+        nullable=True,
+    )
+
+    max_pause_duration_s = Column(
+        Float,
+        nullable=True,
+    )
+
+    # Session activity
+    active_eating_ratio = Column(
+        Float,
+        nullable=True,
+    )
+
+    # Longitudinal features
+    feeding_interval_s = Column(
+        Float,
+        nullable=True,
+    )
+
+    daily_intake_g = Column(
+        Float,
+        nullable=True,
+    )
+
+    created_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        nullable=False,
+    )
+
+    session = relationship(
+        "FeedingSession",
+        back_populates="features",
     )
