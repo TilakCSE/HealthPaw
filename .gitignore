@@ -1,23 +1,61 @@
-# Virtual Environment
+# Virtual environments and Python caches
 venv/
 env/
 ENV/
-
-# Python Cache & Bytecode
 __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
-
-# Environment Variables & Secrets
-.env
-
-# Datasets & ML Artifacts
-data/
-*.pkl``
+*.pkl
 *.parquet
 
-# OS & Editor Files
+# Environment variables and secrets
+.env
+
+# Generated datasets and ML artifacts are ignored by default. Keep only the
+# reproducible v4.3 inputs, reference fixtures, demo artifacts, and scripts.
+/data/*
+!/data/baseline_reference/
+!/data/telemetry_neon/
+!/data/validate_healthpaw_verified.py
+!/data/scripts/
+!/data/v4.3/
+!/data/plots/
+!/data/output/
+
+/data/baseline_reference/*
+!/data/baseline_reference/HealthPaw_Baseline_Dataset_SMALL_VERIFIED_REFERENCE.xlsx
+!/data/baseline_reference/HealthPaw_Baseline_LARGE_GIANT_VERIFIED_REFERENCE.xlsx
+
+/data/telemetry_neon/*
+!/data/telemetry_neon/telemetry.csv
+
+/data/scripts/*
+!/data/scripts/generate_synthetic_data_v4_3.py
+!/data/scripts/plot_synthetic_data_v4_3.py
+!/data/scripts/run_v4_3_feature_selection_and_training.py
+
+/data/v4.3/*
+!/data/v4.3/README.md
+!/data/v4.3/healthpaw_synthetic_ml_dataset_v4_3.xlsx
+!/data/v4.3/healthpaw_synthetic_raw_telemetry_v4_3.xlsx
+
+/data/plots/*
+!/data/plots/v4.3/
+/data/plots/v4.3/*
+!/data/plots/v4.3/*.svg
+!/data/plots/v4.3/*.csv
+
+/data/output/*
+!/data/output/v4.3_synthetic_baseline/
+/data/output/v4.3_synthetic_baseline/*
+!/data/output/v4.3_synthetic_baseline/v4_3_*.csv
+!/data/output/v4.3_synthetic_baseline/v4_3_*.json
+!/data/output/v4.3_synthetic_baseline/v4_3_*.md
+!/data/output/v4.3_synthetic_baseline/synthetic_demo_model.joblib
+!/data/output/v4.3_synthetic_baseline/prediction_examples.json
+
+# OS and editor files
 .DS_Store
 .vscode/
 .idea/
