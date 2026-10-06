@@ -4,9 +4,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .feature_pipeline import generate_features_for_completed_session
-from .models import ConsumptionEvent, FeedingSession, Telemetry
+from .models import ConsumptionEvent, FeedingFeature, FeedingSession, Telemetry
 from .sessionizer import FeedingSession as SessionizedSession
-from .sessionizer import TelemetryPoint, sessionize
+from .sessionizer import (
+    INACTIVITY_TIMEOUT_SECONDS,
+    TelemetryPoint,
+    sessionize,
+)
 
 
 def persist_session_result(
@@ -96,23 +100,97 @@ def process_device_telemetry(db: Session, device_id: str) -> list[FeedingSession
         for row in rows
     ]
     persisted: list[FeedingSession] = []
+    newly_finalized: list[tuple[FeedingSession, FeedingFeature]] = []
 
-    while points:
-        result = sessionize(points)
+    # Split the device history at long gaps between observations. The first
+    # point after a gap is also passed to the prior segment as a boundary
+    # sentinel; sessionize uses it to confirm inactivity, then truncates it.
+    boundaries = [
+        index
+        for index in range(1, len(points))
+        if (points[index].timestamp - points[index - 1].timestamp).total_seconds()
+        > INACTIVITY_TIMEOUT_SECONDS
+    ]
+    segment_start = 0
+    segments: list[list[TelemetryPoint]] = []
+    for boundary in boundaries:
+        segments.append(points[segment_start : boundary + 1])
+        segment_start = boundary
+    if points:
+        segments.append(points[segment_start:])
+
+    for segment in segments:
+        result = sessionize(segment)
         if result is None:
-            break
+            continue
+        previous_row = db.scalar(
+            select(FeedingSession).where(
+                FeedingSession.device_id == device_id,
+                FeedingSession.session_start == result.start_time,
+            )
+        )
+        previous_feature_id = (
+            db.scalar(
+                select(FeedingFeature.id).where(
+                    FeedingFeature.session_id == previous_row.id
+                )
+            )
+            if previous_row is not None
+            else None
+        )
 
         row = persist_session_result(db, device_id, result)
         if row is not None:
             persisted.append(row)
-
-        if result.end_time is None:
-            break
-
-        remaining = [point for point in points if point.timestamp > result.end_time]
-        if len(remaining) == len(points):
-            break
-        points = remaining
+            if previous_row is None and row.session_end is None:
+                print(
+                    f"\n🟡 OPEN FEEDING SESSION stored: "
+                    f"session={row.id} | device={device_id}"
+                )
+            feature = db.scalar(
+                select(FeedingFeature).where(
+                    FeedingFeature.session_id == row.id
+                )
+            )
+            if feature is not None and previous_feature_id is None:
+                newly_finalized.append((row, feature))
 
     db.commit()
+
+    # Classify only at the first successful finalization. Later telemetry
+    # batches reprocess stored rows, so this guard avoids duplicate log lines.
+    from .prediction import predict_demo
+
+    feature_names = [
+        "consumed_g",
+        "session_duration_s",
+        "eating_duration_s",
+        "avg_velocity_gps",
+        "max_velocity_gps",
+        "consumption_event_count",
+        "time_to_first_consumption_s",
+        "pause_count",
+        "avg_pause_duration_s",
+        "max_pause_duration_s",
+        "active_eating_ratio",
+        "feeding_interval_s",
+        "daily_intake_g",
+    ]
+    for row, feature in newly_finalized:
+        vector = {name: getattr(feature, name) for name in feature_names}
+        try:
+            prediction = predict_demo(vector)
+            print(
+                "\n==============================================\n"
+                " SYNTHETIC DEMO PREDICTION — NOT CLINICALLY VALIDATED\n"
+                f" Session: {row.id} | Device: {device_id}\n"
+                f" Class: {prediction['predicted_class']}\n"
+                "==============================================\n"
+            )
+        except Exception as error:
+            print(
+                f"⚠️ Session {row.id} features were saved, but demo "
+                f"classification failed: {error}"
+            )
+
     return persisted

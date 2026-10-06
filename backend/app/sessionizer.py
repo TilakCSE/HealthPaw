@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+import os
 from typing import List
 
 
@@ -13,7 +14,9 @@ STABILITY_TOLERANCE_G = 0.50
 
 STABLE_DURATION_SECONDS = 1.5
 
-INACTIVITY_TIMEOUT_SECONDS = 600
+INACTIVITY_TIMEOUT_SECONDS = int(
+    os.getenv("HEALTHPAW_INACTIVITY_TIMEOUT_SECONDS", "600")
+)
 
 
 # ============================================================
@@ -97,11 +100,23 @@ def sessionize(
     last_meaningful_time = None
 
     stability_start_index = None
+    timeout_reached = False
 
     for i in range(1, len(points)):
 
         current = points[i]
         previous = points[i - 1]
+
+        # Do not let a later meal get folded into the previous session when
+        # process_device_telemetry passes the device's full history here.
+        if (
+            last_meaningful_time is not None
+            and (current.timestamp - last_meaningful_time).total_seconds()
+            > INACTIVITY_TIMEOUT_SECONDS
+        ):
+            points = points[:i]
+            timeout_reached = True
+            break
 
         drop = previous.weight_g - current.weight_g
 
@@ -121,7 +136,7 @@ def sessionize(
                 while (
                     start_index > 0
                     and points[start_index].weight_g
-                    >= points[start_index + 1].weight_g
+                    > points[start_index + 1].weight_g
                 ):
                     start_index -= 1
 
@@ -268,7 +283,7 @@ def sessionize(
             final_timestamp - last_meaningful_time
         ).total_seconds()
 
-        if inactivity >= INACTIVITY_TIMEOUT_SECONDS:
+        if timeout_reached or inactivity >= INACTIVITY_TIMEOUT_SECONDS:
 
             session_end = (
                 last_meaningful_time
